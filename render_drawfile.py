@@ -61,6 +61,18 @@ def bytes_to_uint(size: int, byte_array: bytes, position: int) -> int:
     return out
 
 
+def bytes_to_int(size: int, byte_array: bytes, position: int) -> int:
+    """
+    Convert an array of bytes into a signed integer of arbitrary byte width.
+    Identical to bytes_to_uint but sign-extends the result.
+    """
+    out = bytes_to_uint(size=size, byte_array=byte_array, position=position)
+    sign_bit = 1 << (size * 8 - 1)
+    if out & sign_bit:
+        out -= (sign_bit << 1)
+    return out
+
+
 def colour_dict_from_int(uint: int) -> dict:
     """
     Fetch an RGB colour from a 32-bit int.
@@ -287,10 +299,10 @@ class DrawFileRender:
         # Read bounding box
         # We will expand the limits above if we find objects outside the visible area, so keep a record of what
         # the header said
-        self.x_min_as_read: int = bytes_to_uint(size=4, byte_array=self.bytes, position=24)
-        self.y_min_as_read: int = bytes_to_uint(size=4, byte_array=self.bytes, position=28)
-        self.x_max_as_read: int = bytes_to_uint(size=4, byte_array=self.bytes, position=32)
-        self.y_max_as_read: int = bytes_to_uint(size=4, byte_array=self.bytes, position=36)
+        self.x_min_as_read: int = bytes_to_int(size=4, byte_array=self.bytes, position=24)
+        self.y_min_as_read: int = bytes_to_int(size=4, byte_array=self.bytes, position=28)
+        self.x_max_as_read: int = bytes_to_int(size=4, byte_array=self.bytes, position=32)
+        self.y_max_as_read: int = bytes_to_int(size=4, byte_array=self.bytes, position=36)
 
         # We will expand the limits above if we find objects outside the visible area, so keep a record of what
         # the header said
@@ -416,10 +428,10 @@ class DrawFileRender:
 
         # Populate the bounding box of this object
         if type_info["bbox"]:
-            new_object["x_min"] = bytes_to_uint(size=4, byte_array=self.bytes, position=position + 8)
-            new_object["y_min"] = bytes_to_uint(size=4, byte_array=self.bytes, position=position + 12)
-            new_object["x_max"] = bytes_to_uint(size=4, byte_array=self.bytes, position=position + 16)
-            new_object["y_max"] = bytes_to_uint(size=4, byte_array=self.bytes, position=position + 20)
+            new_object["x_min"] = bytes_to_int(size=4, byte_array=self.bytes, position=position + 8)
+            new_object["y_min"] = bytes_to_int(size=4, byte_array=self.bytes, position=position + 12)
+            new_object["x_max"] = bytes_to_int(size=4, byte_array=self.bytes, position=position + 16)
+            new_object["y_max"] = bytes_to_int(size=4, byte_array=self.bytes, position=position + 20)
 
             if type_info["bbox_include_in_render"]:
                 self.factor_into_bbox(x=new_object["x_min"], y=new_object["y_min"])
@@ -536,8 +548,8 @@ class DrawFileRender:
                 terminate = True
             elif element_type == 2:
                 new_component = {'type': 'MOVE',
-                                 'x': bytes_to_uint(size=4, byte_array=self.bytes, position=position + 4),
-                                 'y': bytes_to_uint(size=4, byte_array=self.bytes, position=position + 8)
+                                 'x': bytes_to_int(size=4, byte_array=self.bytes, position=position + 4),
+                                 'y': bytes_to_int(size=4, byte_array=self.bytes, position=position + 8)
                                  }
                 self.factor_into_bbox(x=new_component['x'], y=new_component['y'])
                 length = 12
@@ -546,12 +558,12 @@ class DrawFileRender:
                 length = 4
             elif element_type == 6:
                 new_component = {'type': 'BEZIER',
-                                 'x0': bytes_to_uint(size=4, byte_array=self.bytes, position=position + 4),
-                                 'y0': bytes_to_uint(size=4, byte_array=self.bytes, position=position + 8),
-                                 'x1': bytes_to_uint(size=4, byte_array=self.bytes, position=position + 12),
-                                 'y1': bytes_to_uint(size=4, byte_array=self.bytes, position=position + 16),
-                                 'x2': bytes_to_uint(size=4, byte_array=self.bytes, position=position + 20),
-                                 'y2': bytes_to_uint(size=4, byte_array=self.bytes, position=position + 24),
+                                 'x0': bytes_to_int(size=4, byte_array=self.bytes, position=position + 4),
+                                 'y0': bytes_to_int(size=4, byte_array=self.bytes, position=position + 8),
+                                 'x1': bytes_to_int(size=4, byte_array=self.bytes, position=position + 12),
+                                 'y1': bytes_to_int(size=4, byte_array=self.bytes, position=position + 16),
+                                 'x2': bytes_to_int(size=4, byte_array=self.bytes, position=position + 20),
+                                 'y2': bytes_to_int(size=4, byte_array=self.bytes, position=position + 24),
                                  }
                 self.factor_into_bbox(x=new_component['x0'], y=new_component['y0'])
                 self.factor_into_bbox(x=new_component['x1'], y=new_component['y1'])
@@ -559,8 +571,8 @@ class DrawFileRender:
                 length = 28
             elif element_type == 8:
                 new_component = {'type': 'LINE',
-                                 'x': bytes_to_uint(size=4, byte_array=self.bytes, position=position + 4),
-                                 'y': bytes_to_uint(size=4, byte_array=self.bytes, position=position + 8)
+                                 'x': bytes_to_int(size=4, byte_array=self.bytes, position=position + 4),
+                                 'y': bytes_to_int(size=4, byte_array=self.bytes, position=position + 8)
                                  }
                 self.factor_into_bbox(x=new_component['x'], y=new_component['y'])
                 length = 12
