@@ -246,7 +246,7 @@ class GraphicsContext:
             self.set_color(color=color)
         if dotted is not None:
             self.set_line_style(dotted=dotted, dash_pattern=dash_pattern)
-        self.context.stroke_preserve()
+        self.context.stroke()
 
     def fill(self, color: Optional[Sequence[float]] = None) -> None:
         """
