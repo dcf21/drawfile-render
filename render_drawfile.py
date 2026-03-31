@@ -29,6 +29,8 @@ References:
 """
 
 import argparse
+import ctypes
+import ctypes.util
 import io
 import glob
 import logging
@@ -40,6 +42,45 @@ from typing import Dict, List, Optional, Sequence
 from graphics_context import GraphicsContext, GraphicsPage
 import spritefile, spr2img
 import temporary_directory
+
+
+def _register_riscos_fonts() -> bool:
+    """
+    Register the bundled RISC OS font directory with fontconfig so that Cairo
+    can resolve the original RISC OS font family names (Homerton, Trinity,
+    Corpus, etc.) directly.
+
+    :return:
+        True if the fonts were registered successfully, False otherwise.
+    """
+    font_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "riscos-free-fonts", "Fonts")
+    if not os.path.isdir(font_dir):
+        logging.warning("RISC OS font directory not found: %s", font_dir)
+        return False
+
+    fc_lib_name = ctypes.util.find_library("fontconfig")
+    if fc_lib_name is None:
+        logging.warning("fontconfig library not found, cannot register RISC OS fonts")
+        return False
+
+    try:
+        fc = ctypes.cdll.LoadLibrary(fc_lib_name)
+        fc.FcConfigAppFontAddDir.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        fc.FcConfigAppFontAddDir.restype = ctypes.c_int
+        result = fc.FcConfigAppFontAddDir(None, font_dir.encode("utf-8"))
+        if result:
+            logging.debug("Registered RISC OS fonts from %s", font_dir)
+            return True
+        else:
+            logging.warning("FcConfigAppFontAddDir failed for %s", font_dir)
+            return False
+    except OSError as e:
+        logging.warning("Failed to load fontconfig: %s", e)
+        return False
+
+
+# Register bundled RISC OS fonts at import time
+_RISCOS_FONTS_AVAILABLE = _register_riscos_fonts()
 
 # Translation table for RISC OS Acorn Latin1 to Unicode.
 # ISO 8859-1 maps bytes 0x80-0x9F to C1 control characters, but RISC OS
@@ -396,11 +437,15 @@ class DrawFileRender:
         self.y_min = min(self.y_min, int(y - self.margin / self.pixel))
         self.y_max = max(self.y_max, int(y + self.margin / self.pixel))
 
-    # Mapping of RISC OS font family names to system font families
-    _riscos_font_families: Dict[str, str] = {
+    # Fallback mapping of RISC OS font family names to generic system fonts,
+    # used when the bundled RISC OS fonts are not available.
+    _riscos_font_fallbacks: Dict[str, str] = {
         "homerton": "FreeSans",
         "trinity": "FreeSerif",
         "corpus": "FreeMono",
+        "newhall": "FreeSerif",
+        "sassoon": "FreeSerif",
+        "system": "FreeMono",
     }
 
     @staticmethod
@@ -411,6 +456,10 @@ class DrawFileRender:
         RISC OS font names follow the pattern: Family.Weight.Style
         e.g. "Trinity.Bold", "Homerton.Medium.Italic", "Trinity.Medium"
 
+        When the bundled RISC OS fonts are registered with fontconfig, the
+        original family name (e.g. "Trinity") is used directly. Otherwise
+        falls back to FreeSans/FreeSerif/FreeMono.
+
         :param riscos_name:
             RISC OS font name string
         :return:
@@ -418,7 +467,13 @@ class DrawFileRender:
         """
         parts = riscos_name.split(".")
         family_key = parts[0].lower() if parts else ""
-        family = DrawFileRender._riscos_font_families.get(family_key, "FreeSerif")
+
+        if _RISCOS_FONTS_AVAILABLE:
+            # Use the original RISC OS family name — fontconfig can resolve it
+            # from the bundled OTF fonts
+            family = parts[0] if parts else "Trinity"
+        else:
+            family = DrawFileRender._riscos_font_fallbacks.get(family_key, "FreeSerif")
 
         name_lower = riscos_name.lower()
         bold = "bold" in name_lower
