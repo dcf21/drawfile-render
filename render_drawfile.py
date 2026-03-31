@@ -677,47 +677,36 @@ class DrawFileRender:
     def render_object(self, item: dict, context: GraphicsContext) -> None:
         # Render text objects
         if item['type_name'] in ("Text object", "Transformed text object"):
-            context.set_font_size(font_size=1)
             text_string: str = item["metadata"]["text"]
-            text_extent = context.measure_text(text=text_string)
-            if text_extent["width"] == 0:
-                logging.info("Ignoring text item <{}> with zero width".format(text_string))
-                return
             text_colour: Sequence[float] = context_colour_from_int(item["metadata"]["text_colour"])
-            x_centre: float = self.x_pos(x=(item["x_max"] + item["x_min"]) / 2)
-            y_centre: float = self.y_pos(y=(item["y_max"] + item["y_min"]) / 2)
-            target_width: float = (item["x_max"] - item["x_min"]) * self.pixel
-            target_height: float = (item["y_max"] - item["y_min"]) * self.pixel
             context.set_color(color=text_colour)
+
+            # Use the font size from the Draw file (y_size in Draw units)
+            font_size_metres: float = item["metadata"]["y_size"] * self.pixel
+            font_size: float = font_size_metres / context.base_font_size
+
+            # Position text at the baseline coordinates from the Draw file
+            x_pos: float = self.x_pos(x=item["metadata"]["x_baseline"])
+            y_pos: float = self.y_pos(y=item["metadata"]["y_baseline"])
+
             if item['type_name'] == "Transformed text object":
-                # Apply transformation to sprite
+                # Apply transformation matrix
                 xx: float = item["metadata"]["transformation_a"]
                 yx: float = -item["metadata"]["transformation_b"]
                 xy: float = -item["metadata"]["transformation_c"]
                 yy: float = item["metadata"]["transformation_d"]
                 context.matrix_transformation_set(xx=xx, yx=yx, xy=xy, yy=yy, x0=0, y0=0,
-                                                  centre_x=x_centre, centre_y=y_centre
+                                                  centre_x=x_pos, centre_y=y_pos
                                                   )
 
-                # Work out the correct scaling to fill the bounding box
-                corners = [(0.5 * sgn_x, 0.5 * sgn_y) for sgn_x in (-1, 1) for sgn_y in (-1, 1)]
-                corners_transformed = [(p[0] * xx + p[1] * xy, p[0] * yx + p[1] * yy) for p in corners]
-                transformed_unit_width = (max([p[0] for p in corners_transformed]) -
-                                          min([p[0] for p in corners_transformed]))
-                target_width_transformed = target_width / transformed_unit_width
-                target_height_transformed = target_height / transformed_unit_width
-
-                # Paint text
-                font_size: float = target_width_transformed / text_extent["width"]
                 context.set_font_size(font_size=font_size)
-                context.text(text=text_string, h_align=0, v_align=0, gap=0, rotation=0, x=0, y=0)
+                context.text(text=text_string, h_align=-1, v_align=-1, gap=0, rotation=0, x=0, y=0)
 
                 # Undo transformation
                 context.matrix_transformation_restore()
             else:
-                font_size: float = target_width / text_extent["width"]
                 context.set_font_size(font_size=font_size)
-                context.text(text=text_string, h_align=0, v_align=0, gap=0, rotation=0, x=x_centre, y=y_centre)
+                context.text(text=text_string, h_align=-1, v_align=-1, gap=0, rotation=0, x=x_pos, y=y_pos)
 
         # Render path objects
         if item['type_name'] == "Path object":
