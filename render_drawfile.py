@@ -913,8 +913,10 @@ class DrawFileRender:
                         corners_transformed = [(p[0] * xx + p[1] * xy, p[0] * yx + p[1] * yy) for p in corners]
                         transformed_unit_width = (max([p[0] for p in corners_transformed]) -
                                                   min([p[0] for p in corners_transformed]))
+                        transformed_unit_height = (max([p[1] for p in corners_transformed]) -
+                                                   min([p[1] for p in corners_transformed]))
                         target_width_transformed = target_width / transformed_unit_width
-                        target_height_transformed = target_height / transformed_unit_width
+                        target_height_transformed = target_height / transformed_unit_height
 
                         # Paint sprite onto the canvas
                         context.paint_png_image(png_filename=first_sprite,
