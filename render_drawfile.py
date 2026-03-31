@@ -317,6 +317,10 @@ class DrawFileRender:
         self.objects = []
         self.fetch_objects(target=self.objects, position=40, end_position=self.size)
 
+        # Parse the font table to build a mapping of font index to font properties
+        self.font_table: Dict[int, dict] = {}
+        self._parse_font_table()
+
         # If the bounding box is ridiculously large, sanitise it
         max_size = 5  # metres
         if (self.x_max - self.x_min) * self.pixel > max_size or (self.y_max - self.y_min) * self.pixel > max_size:
@@ -339,6 +343,57 @@ class DrawFileRender:
         self.x_max = max(self.x_max, int(x + self.margin / self.pixel))
         self.y_min = min(self.y_min, int(y - self.margin / self.pixel))
         self.y_max = max(self.y_max, int(y + self.margin / self.pixel))
+
+    # Mapping of RISC OS font family names to system font families
+    _riscos_font_families: Dict[str, str] = {
+        "homerton": "FreeSans",
+        "trinity": "FreeSerif",
+        "corpus": "FreeMono",
+    }
+
+    @staticmethod
+    def _map_riscos_font(riscos_name: str) -> dict:
+        """
+        Map a RISC OS font name to system font properties.
+
+        RISC OS font names follow the pattern: Family.Weight.Style
+        e.g. "Trinity.Bold", "Homerton.Medium.Italic", "Trinity.Medium"
+
+        :param riscos_name:
+            RISC OS font name string
+        :return:
+            Dictionary with keys: family, bold, italic
+        """
+        parts = riscos_name.split(".")
+        family_key = parts[0].lower() if parts else ""
+        family = DrawFileRender._riscos_font_families.get(family_key, "FreeSerif")
+
+        name_lower = riscos_name.lower()
+        bold = "bold" in name_lower
+        italic = "italic" in name_lower or "oblique" in name_lower
+
+        return {"family": family, "bold": bold, "italic": italic}
+
+    def _parse_font_table(self) -> None:
+        """
+        Find the font table object and parse it into a mapping of font index to font properties.
+        """
+        for obj in self.objects:
+            if obj.get("type_name") == "Font table":
+                payload_start = obj["position"] + 8  # no bbox, so payload is right after type+size
+                payload_end = obj["position"] + obj["size"]
+                pos = payload_start
+                while pos < payload_end:
+                    font_id = self.bytes[pos]
+                    if font_id == 0:
+                        break
+                    pos += 1
+                    null_pos = self.bytes.index(b"\x00", pos)
+                    font_name = self.bytes[pos:null_pos].decode(encoding='iso-8859-1', errors='replace')
+                    pos = null_pos + 1
+                    self.font_table[font_id] = self._map_riscos_font(font_name)
+                    logging.debug("Font {:d}: {:s} -> {}".format(font_id, font_name, self.font_table[font_id]))
+                break
 
     def x_pos(self, x: float) -> float:
         """
@@ -680,6 +735,16 @@ class DrawFileRender:
             text_string: str = item["metadata"]["text"]
             text_colour: Sequence[float] = context_colour_from_int(item["metadata"]["text_colour"])
             context.set_color(color=text_colour)
+
+            # Select font face from the font table
+            font_id: int = item["metadata"]["text_style"]
+            if font_id in self.font_table:
+                font_props = self.font_table[font_id]
+                context.set_font_style(family=font_props["family"],
+                                       bold=font_props["bold"],
+                                       italic=font_props["italic"])
+            else:
+                context.set_font_style(family="FreeSerif", bold=False, italic=False)
 
             # Use the font size from the Draw file (y_size in Draw units)
             font_size_metres: float = item["metadata"]["y_size"] * self.pixel

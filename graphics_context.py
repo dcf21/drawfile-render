@@ -148,6 +148,7 @@ class GraphicsContext:
         self.base_line_width: float = line_width_base
         self.base_font_size: float = font_size_base
         self.font_size: Optional[float] = False
+        self.font_family: str = "FreeSerif"
         self.font_bold: bool = False
         self.font_italic: bool = False
         self.line_dotted: bool = False
@@ -343,21 +344,26 @@ class GraphicsContext:
         self.font_size = font_size
         self.context.set_font_size(font_size * self.base_font_size)
 
-    def set_font_style(self, italic: Optional[bool] = None, bold: Optional[bool] = None) -> None:
+    def set_font_style(self, family: Optional[str] = None,
+                       italic: Optional[bool] = None, bold: Optional[bool] = None) -> None:
         """
-        Sets the font style (i.e. bold or italic) used.
+        Sets the font style (i.e. family, bold or italic) used.
 
+        :param family:
+            Font family name. None indicates we preserve the existing setting.
         :param italic:
             Boolean flag, indicating whether text should be italic. None indicates we preserve the existing setting.
         :param bold:
             Boolean flag, indicating whether text should be bold. None indicates we preserve the existing setting.
         """
+        if family is not None:
+            self.font_family = family
         if italic is not None:
             self.font_italic = italic
         if bold is not None:
             self.font_bold = bold
 
-        self.context.select_font_face(family="FreeSerif",
+        self.context.select_font_face(family=self.font_family,
                                       slant=cairo.FONT_SLANT_ITALIC if self.font_italic else cairo.FONT_SLANT_NORMAL,
                                       weight=cairo.FONT_WEIGHT_BOLD if self.font_bold else cairo.FONT_SLANT_NORMAL
                                       )
