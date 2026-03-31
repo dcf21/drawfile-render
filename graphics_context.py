@@ -235,7 +235,8 @@ class GraphicsContext:
         self.context.close_path()
 
     def stroke(self, line_width: Optional[float] = None,
-               color: Optional[Sequence[float]] = None, dotted: Optional[bool] = None) -> None:
+               color: Optional[Sequence[float]] = None, dotted: Optional[bool] = None,
+               dash_pattern: Optional[List[float]] = None) -> None:
         """
         Stroke the current path
         """
@@ -244,7 +245,7 @@ class GraphicsContext:
         if color is not None:
             self.set_color(color=color)
         if dotted is not None:
-            self.set_line_style(dotted=dotted)
+            self.set_line_style(dotted=dotted, dash_pattern=dash_pattern)
         self.context.stroke_preserve()
 
     def fill(self, color: Optional[Sequence[float]] = None) -> None:
@@ -317,12 +318,16 @@ class GraphicsContext:
         """
         self.context.set_source_rgba(red=color[0], green=color[1], blue=color[2], alpha=color[3])
 
-    def set_line_style(self, dotted: Optional[bool] = None) -> None:
+    def set_line_style(self, dotted: Optional[bool] = None,
+                       dash_pattern: Optional[List[float]] = None) -> None:
         """
         Select the stroke style used to stroke lines.
 
         :param dotted:
             Boolean flag indicating whether lines should be dotted or continuous.
+        :param dash_pattern:
+            Optional list of dash/gap lengths in metres. If provided and dotted
+            is True, this pattern is used instead of the default.
         :return:
             None
         """
@@ -330,7 +335,10 @@ class GraphicsContext:
             self.line_dotted = dotted
 
         if self.line_dotted:
-            self.context.set_dash([1.0 * unit_mm])
+            if dash_pattern:
+                self.context.set_dash(dash_pattern)
+            else:
+                self.context.set_dash([1.0 * unit_mm])
         else:
             self.context.set_dash([])
 

@@ -855,8 +855,13 @@ class DrawFileRender:
             stroke_colour = context_colour_from_int(uint=item['metadata']['outline_colour'])
             outline_width = max(2, item['metadata']['outline_width'] * self.pixel / context.base_line_width)
             if stroke_colour[3] > 0:
+                # Convert dash pattern from Draw units to metres
+                dash_pattern = None
+                if item['metadata']['has_dash_pattern'] and 'dash_pattern' in item:
+                    dash_pattern = [v * self.pixel for v in item['dash_pattern']['sequence']]
                 context.stroke(color=stroke_colour, line_width=outline_width,
-                               dotted=item['metadata']['has_dash_pattern'])
+                               dotted=item['metadata']['has_dash_pattern'],
+                               dash_pattern=dash_pattern)
 
         # Render sprite objects
         if item['type_name'] in ("Sprite object", "Transformed sprite object"):
