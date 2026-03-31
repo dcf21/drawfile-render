@@ -853,7 +853,7 @@ class DrawFileRender:
 
             # Stroke path
             stroke_colour = context_colour_from_int(uint=item['metadata']['outline_colour'])
-            outline_width = max(2, item['metadata']['outline_width'] * self.pixel / context.base_line_width)
+            outline_width = max(1, item['metadata']['outline_width'] * self.pixel / context.base_line_width)
             if stroke_colour[3] > 0:
                 # Convert dash pattern from Draw units to metres
                 dash_pattern = None
