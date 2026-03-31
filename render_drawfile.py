@@ -41,6 +41,46 @@ from graphics_context import GraphicsContext, GraphicsPage
 import spritefile, spr2img
 import temporary_directory
 
+# Translation table for RISC OS Acorn Latin1 to Unicode.
+# ISO 8859-1 maps bytes 0x80-0x9F to C1 control characters, but RISC OS
+# defines printable characters in this range. We decode as iso-8859-1 (which
+# is a lossless 1:1 mapping) then translate the 0x80-0x9F codepoints to the
+# correct Unicode characters.
+_RISCOS_LATIN1_TRANSLATION = str.maketrans({
+    0x80: '\u20ac',  # Euro sign
+    0x81: '\u0174',  # Latin capital letter W with circumflex
+    0x82: '\u0175',  # Latin small letter w with circumflex
+    0x83: '\ufffd',  # RISC OS resize window icon (no Unicode equivalent)
+    0x84: '\ufffd',  # RISC OS close window icon (no Unicode equivalent)
+    0x85: '\u0176',  # Latin capital letter Y with circumflex
+    0x86: '\u0177',  # Latin small letter y with circumflex
+    0x87: '\ufffd',  # RISC OS special character (no Unicode equivalent)
+    0x88: '\u21e6',  # Leftwards white arrow
+    0x89: '\u21e8',  # Rightwards white arrow
+    0x8a: '\u21e9',  # Downwards white arrow
+    0x8b: '\u21e7',  # Upwards white arrow
+    0x8c: '\u2026',  # Horizontal ellipsis
+    0x8d: '\u2122',  # Trade mark sign
+    0x8e: '\u2030',  # Per mille sign
+    0x8f: '\u2022',  # Bullet
+    0x90: '\u2018',  # Left single quotation mark
+    0x91: '\u2019',  # Right single quotation mark
+    0x92: '\u2039',  # Single left-pointing angle quotation mark
+    0x93: '\u203a',  # Single right-pointing angle quotation mark
+    0x94: '\u201c',  # Left double quotation mark
+    0x95: '\u201d',  # Right double quotation mark
+    0x96: '\u201e',  # Double low-9 quotation mark
+    0x97: '\u2013',  # En dash
+    0x98: '\u2014',  # Em dash
+    0x99: '\u2212',  # Minus sign
+    0x9a: '\u0152',  # Latin capital ligature OE
+    0x9b: '\u0153',  # Latin small ligature oe
+    0x9c: '\u2020',  # Dagger
+    0x9d: '\u2021',  # Double dagger
+    0x9e: '\ufb01',  # Latin small ligature fi
+    0x9f: '\ufb02',  # Latin small ligature fl
+})
+
 
 def bytes_to_uint(size: int, byte_array: bytes, position: int) -> int:
     """
@@ -71,6 +111,18 @@ def bytes_to_int(size: int, byte_array: bytes, position: int) -> int:
     if out & sign_bit:
         out -= (sign_bit << 1)
     return out
+
+
+def decode_riscos_string(data: bytes) -> str:
+    """
+    Decode a byte string from the RISC OS Acorn Latin1 character set to Unicode.
+
+    :param data:
+        Raw bytes in RISC OS encoding
+    :return:
+        Unicode string
+    """
+    return data.decode(encoding='iso-8859-1').translate(_RISCOS_LATIN1_TRANSLATION)
 
 
 def colour_dict_from_int(uint: int) -> dict:
@@ -291,10 +343,10 @@ class DrawFileRender:
 
         # Read header of Drawfile
         self.size: int = len(self.bytes)
-        self.draw_id: str = self.bytes[0:4].decode(encoding='iso-8859-1', errors='ignore')
+        self.draw_id: str = decode_riscos_string(self.bytes[0:4])
         self.major_version: int = bytes_to_uint(size=4, byte_array=self.bytes, position=4)
         self.minor_version: int = bytes_to_uint(size=4, byte_array=self.bytes, position=8)
-        self.generator: str = self.bytes[12:24].decode(encoding='iso-8859-1', errors='ignore')
+        self.generator: str = decode_riscos_string(self.bytes[12:24])
 
         # Read bounding box
         # We will expand the limits above if we find objects outside the visible area, so keep a record of what
@@ -389,7 +441,7 @@ class DrawFileRender:
                         break
                     pos += 1
                     null_pos = self.bytes.index(b"\x00", pos)
-                    font_name = self.bytes[pos:null_pos].decode(encoding='iso-8859-1', errors='replace')
+                    font_name = decode_riscos_string(self.bytes[pos:null_pos])
                     pos = null_pos + 1
                     self.font_table[font_id] = self._map_riscos_font(font_name)
                     logging.debug("Font {:d}: {:s} -> {}".format(font_id, font_name, self.font_table[font_id]))
@@ -515,11 +567,11 @@ class DrawFileRender:
                     if field_props[2] > 0:
                         # String of pre-defined length
                         start = payload_start + field_props[0]
-                        value = self.bytes[start:start + field_props[2]].decode(encoding='iso-8859-1', errors='replace')
+                        value = decode_riscos_string(self.bytes[start:start + field_props[2]])
                     else:
                         # Null-terminated string
                         start = payload_start + field_props[0]
-                        value = self.bytes[start:].split(b"\x00")[0].decode(encoding='iso-8859-1', errors='replace')
+                        value = decode_riscos_string(self.bytes[start:].split(b"\x00")[0])
                     # Remove padding
                     value = value.strip()
                 # Set metadata item value
