@@ -937,8 +937,8 @@ class DrawFileRender:
                                                 target_height=(item["y_max"] - item["y_min"]) * self.pixel
                                                 )
 
-            except:
-                logging.info("Failed to render sprite")
+            except Exception:
+                logging.info("Failed to render sprite", exc_info=True)
 
         # Render object children
         if "children" in item:
