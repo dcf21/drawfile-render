@@ -558,11 +558,8 @@ class DrawFileRender:
                                           position=payload_start + field_props[0])
                 if field_props[1] == "int/65536":
                     # Fixed-point number &XXXX.XXXX
-                    value = bytes_to_uint(byte_array=self.bytes, size=field_props[2],
-                                          position=payload_start + field_props[0]) / 65536.
-                    # Deal with negative values
-                    if value > 0x8000:
-                        value -= 0x10000
+                    value = bytes_to_int(byte_array=self.bytes, size=field_props[2],
+                                         position=payload_start + field_props[0]) / 65536.
                 elif field_props[1] == "str":
                     if field_props[2] > 0:
                         # String of pre-defined length
