@@ -389,22 +389,19 @@ class DrawFileRender:
         self.minor_version: int = bytes_to_uint(size=4, byte_array=self.bytes, position=8)
         self.generator: str = decode_riscos_string(self.bytes[12:24])
 
-        # Read bounding box
-        # We will expand the limits above if we find objects outside the visible area, so keep a record of what
-        # the header said
+        # Read bounding box from the file header
         self.x_min_as_read: int = bytes_to_int(size=4, byte_array=self.bytes, position=24)
         self.y_min_as_read: int = bytes_to_int(size=4, byte_array=self.bytes, position=28)
         self.x_max_as_read: int = bytes_to_int(size=4, byte_array=self.bytes, position=32)
         self.y_max_as_read: int = bytes_to_int(size=4, byte_array=self.bytes, position=36)
 
-        # We will expand the limits above if we find objects outside the visible area, so keep a record of what
-        # the header said
-        self.x_min: int = self.x_min_as_read
-        self.x_max: int = self.x_max_as_read
-        self.y_min: int = self.y_min_as_read
-        self.y_max: int = self.y_max_as_read
-        self.factor_into_bbox(x=self.x_min, y=self.y_min)
-        self.factor_into_bbox(x=self.x_max, y=self.y_max)
+        # Initialise the working bounding box from object extents only (not the
+        # header bbox) so that we can detect an insane header bbox afterwards.
+        # Use sentinel values that will be replaced by the first factor_into_bbox call.
+        self.x_min: int = 0x7FFFFFFF
+        self.x_max: int = -0x80000000
+        self.y_min: int = 0x7FFFFFFF
+        self.y_max: int = -0x80000000
 
         # Read the objects that follow the header
         self.objects = []
@@ -414,14 +411,33 @@ class DrawFileRender:
         self.font_table: Dict[int, dict] = {}
         self._parse_font_table()
 
-        # If the bounding box is ridiculously large, sanitise it
-        max_size = 5  # metres
-        if (self.x_max - self.x_min) * self.pixel > max_size or (self.y_max - self.y_min) * self.pixel > max_size:
-            logging.info("Removing ridiculously large bounding box")
-            self.x_min = self.x_min_as_read - int(0.3 / self.pixel)
-            self.x_max = self.x_max_as_read + int(0.3 / self.pixel)
-            self.y_min = self.y_min_as_read - int(0.3 / self.pixel)
-            self.y_max = self.y_max_as_read + int(0.3 / self.pixel)
+        # Decide which bounding box to use.  If the header bbox is sane, use it
+        # (unioned with the object extents so nothing is clipped).  If the
+        # header bbox is absurdly large, fall back to the computed object
+        # extents only.
+        max_size = 5  # metres — anything bigger than this is almost certainly wrong
+        header_w = (self.x_max_as_read - self.x_min_as_read) * self.pixel
+        header_h = (self.y_max_as_read - self.y_min_as_read) * self.pixel
+        have_objects = self.x_min <= self.x_max and self.y_min <= self.y_max
+
+        if header_w > max_size or header_h > max_size or header_w <= 0 or header_h <= 0:
+            if have_objects:
+                logging.info("Header bounding box is invalid (%.1f x %.1f m); "
+                             "using bounding box computed from object extents",
+                             header_w, header_h)
+                # x_min/x_max/y_min/y_max are already set from object extents
+            else:
+                logging.warning("Header bounding box is invalid and no renderable "
+                                "objects found; using header bbox as fallback")
+                self.x_min = self.x_min_as_read
+                self.x_max = self.x_max_as_read
+                self.y_min = self.y_min_as_read
+                self.y_max = self.y_max_as_read
+        else:
+            # Header bbox is sane — use it, expanded to include any objects
+            # that fall outside it
+            self.factor_into_bbox(x=self.x_min_as_read, y=self.y_min_as_read)
+            self.factor_into_bbox(x=self.x_max_as_read, y=self.y_max_as_read)
 
     def factor_into_bbox(self, x: float, y: float) -> None:
         """
@@ -596,8 +612,13 @@ class DrawFileRender:
             new_object["y_max"] = bytes_to_int(size=4, byte_array=self.bytes, position=position + 20)
 
             if type_info["bbox_include_in_render"]:
-                self.factor_into_bbox(x=new_object["x_min"], y=new_object["y_min"])
-                self.factor_into_bbox(x=new_object["x_max"], y=new_object["y_max"])
+                # Only factor in the object bbox if it looks sane (not INT_MIN/INT_MAX
+                # sentinel values that some applications write for unknown extents)
+                obj_w = (new_object["x_max"] - new_object["x_min"]) * self.pixel
+                obj_h = (new_object["y_max"] - new_object["y_min"]) * self.pixel
+                if 0 < obj_w < 5 and 0 < obj_h < 5:
+                    self.factor_into_bbox(x=new_object["x_min"], y=new_object["y_min"])
+                    self.factor_into_bbox(x=new_object["x_max"], y=new_object["y_max"])
 
             payload_start: int = position + 24
         else:
