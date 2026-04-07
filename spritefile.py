@@ -474,6 +474,7 @@ class spritefile:
         mode = self.str2num(4, file.read(4))
 
         bpp = (mode >> 27)
+        new_format_sprite = (bpp != 0)
 
         if bpp == 0:
 
@@ -625,14 +626,25 @@ class spritefile:
 
         # Obtain mask data
         if mask_ptr != image_ptr:
-            file.seek(mask_ptr, 0)
+            # Guard: only attempt mask processing if mask_ptr is within
+            # the actual file. Some tools write mask_ptr = image_ptr +
+            # image_data_size as a sentinel for "no mask", leaving nothing
+            # at that offset. Seeking past EOF succeeds silently, but
+            # file.read(1) then returns b'' causing IndexError in mask2rgba.
+            file.seek(0, 2)           # seek to end to find file size
+            file_size = file.tell()
+            if mask_ptr < file_size:
+                file.seek(mask_ptr, 0)
 
-            data['image'] = self.mask2rgba(
-                file, width, height, first_bit_used, bpp, data['image']
-            )
+                # New format sprites always use 1bpp masks;
+                # old format sprites use the same bpp as the image.
+                mask_bpp = 1 if new_format_sprite else bpp
+                data['image'] = self.mask2rgba(
+                    file, width, height, first_bit_used, mask_bpp, data['image']
+                )
 
-            # The image is stored in RGBA form.
-            data['mode'] = 'RGBA'
+                # The image is stored in RGBA form.
+                data['mode'] = 'RGBA'
 
         return name, data, next
 
