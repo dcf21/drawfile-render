@@ -268,6 +268,7 @@ class DrawFileRender:
             "bbox": True,
             "bbox_include_in_render": True,
             "children_start": 0,
+            "fields_after_children": True,
             "fields": {
                 "zero": [0, "uint", 4],
                 "reserved_1": [4, "uint", 4],
@@ -280,7 +281,10 @@ class DrawFileRender:
         10: {
             "name": "Text column object",
             "bbox": True,
-            "bbox_include_in_render": True
+            "bbox_include_in_render": True,
+            "fields": {
+                # "text": [0, "str", 0]
+            }
         },
         11: {
             "name": "Options object",
@@ -538,7 +542,7 @@ class DrawFileRender:
         """
         return (self.y_max - y) * self.pixel
 
-    def fetch_objects(self, target: list, position: int, end_position: int, exit_on_zero: bool = False) -> None:
+    def fetch_objects(self, target: list, position: int, end_position: int, exit_on_zero: bool = False) -> int:
         """
         Read the list of objects contained within a Drawfile, or within a parent object.
 
@@ -551,7 +555,7 @@ class DrawFileRender:
         :param exit_on_zero:
             Exit if an object begins with a null word
         :return:
-            None
+            Byte position after the end of the last object read
         """
         while position < end_position:
             new_object = self.fetch_object(position=position, exit_on_zero=exit_on_zero)
@@ -564,6 +568,9 @@ class DrawFileRender:
             if new_object["size"] < 8:
                 logging.info("Drawfile object with illegal size of {:d} bytes".format(new_object["size"]))
                 break
+
+        # Return byte position after the end of the last object read
+        return position
 
     def fetch_object(self, position: int, exit_on_zero: bool = False) -> Optional[Dict]:
         """
@@ -624,26 +631,42 @@ class DrawFileRender:
         else:
             payload_start: int = position + 8
 
+        # Read any children this object may have
+        children_end: int = 0
+        if "children_start" in type_info:
+            new_object["children"] = []
+            children_end = self.fetch_objects(target=new_object["children"],
+                                              position=payload_start + type_info["children_start"],
+                                              end_position=position + size,
+                                              exit_on_zero=True)
+
         # Read fields
         if "fields" in type_info:
+            # Calculate byte position of the start of the fields
+            if "fields_after_children" in type_info:
+                fields_start = children_end
+            else:
+                fields_start = payload_start
+
+            # Fetch each field in turn
             for field_name, field_props in type_info["fields"].items():
                 value = None
                 if field_props[1] == "uint":
                     # Unsigned integer
                     value = bytes_to_uint(byte_array=self.bytes, size=field_props[2],
-                                          position=payload_start + field_props[0])
+                                          position=fields_start + field_props[0])
                 if field_props[1] == "int/65536":
                     # Fixed-point number &XXXX.XXXX
                     value = bytes_to_int(byte_array=self.bytes, size=field_props[2],
-                                         position=payload_start + field_props[0]) / 65536.
+                                         position=fields_start + field_props[0]) / 65536.
                 elif field_props[1] == "str":
                     if field_props[2] > 0:
                         # String of pre-defined length
-                        start = payload_start + field_props[0]
+                        start = fields_start + field_props[0]
                         value = decode_riscos_string(self.bytes[start:start + field_props[2]])
                     else:
                         # Null-terminated string
-                        start = payload_start + field_props[0]
+                        start = fields_start + field_props[0]
                         value = decode_riscos_string(self.bytes[start:].split(b"\x00")[0])
                     # Remove padding
                     value = value.strip()
@@ -662,14 +685,6 @@ class DrawFileRender:
                 payload_start: int = position + 40
 
             new_object["path"] = self.fetch_path(position=payload_start)
-
-        # Read any children this object may have
-        if "children_start" in type_info:
-            new_object["children"] = []
-            self.fetch_objects(target=new_object["children"],
-                               position=payload_start + type_info["children_start"],
-                               end_position=position + size,
-                               exit_on_zero=True)
 
         # Return this object
         return new_object
@@ -898,6 +913,19 @@ class DrawFileRender:
                 context.set_font_size(font_size=font_size)
                 context.text(text=text_string, h_align=-1, v_align=-1, gap=0, rotation=0, x=x_pos, y=y_pos)
 
+        # Render text area objects
+        if item['type_name'] == "Text area object":
+            text_string: str = item["metadata"]["text"]
+            clean_text: str = re.sub(r"\s+", " ", re.sub(r"\\[\d]", "", re.sub(r"\\[^\d][^/\n]*/?", "", text_string)))
+            text_colour: Sequence[float] = context_colour_from_int(item["metadata"]["colour_foreground"])
+            x_centre: float = self.x_pos(x=(item["x_max"] + item["x_min"]) / 2)
+            y_centre: float = self.y_pos(y=(item["y_max"] + item["y_min"]) / 2)
+            target_width: float = (item["x_max"] - item["x_min"]) * self.pixel
+
+            context.set_font_size(font_size=1)
+            context.set_color(color=text_colour)
+            context.text_wrapped(text=clean_text, x=x_centre, y=y_centre, h_align=0, v_align=0, width=target_width,
+                                 justify=0)
         # Render path objects
         if item['type_name'] == "Path object":
             # Start path
