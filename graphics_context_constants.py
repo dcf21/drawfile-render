@@ -24,16 +24,16 @@ The file contains global settings for graphics_context output.
 from math import pi
 
 # Units
-dots_per_inch = 200
+dots_per_inch: float = 200
 
-unit_m = 1.
-unit_cm = 1. / 100
-unit_mm = 1. / 1000
+unit_m: float = 1.
+unit_cm: float = 1. / 100
+unit_mm: float = 1. / 1000
 
 # Angle conversion
-unit_deg = float(pi / 180)
-unit_rev = 2. * pi
+unit_deg: float = float(pi / 180)
+unit_rev: float = 2. * pi
 
 # Font size
-font_size_base = 3.2 * unit_mm
-line_width_base = 0.2 * unit_mm
+font_size_base: float = 3.2 * unit_mm
+line_width_base: float = 0.2 * unit_mm

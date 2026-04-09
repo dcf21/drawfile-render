@@ -79,7 +79,7 @@ class GraphicsPage:
         else:
             assert False, "Unknown image output format {}".format(self.format)
 
-    def __del__(self):
+    def __del__(self) -> None:
         """
         Save the canvas we have drawn to disk
 
@@ -109,11 +109,11 @@ class GraphicsPage:
     def __enter__(self):
         return self
 
-    def __exit__(self, err_type, err_value, err_tb):
+    def __exit__(self, err_type, err_value, err_tb) -> None:
         self.__del__()
 
     @staticmethod
-    def supported_formats():
+    def supported_formats() -> Sequence[str]:
         return "pdf", "png", "svg"
 
 
@@ -166,16 +166,16 @@ class GraphicsContext:
     def __enter__(self):
         return self
 
-    def __exit__(self, err_type, err_value, err_tb):
+    def __exit__(self, err_type, err_value, err_tb) -> None:
         pass
 
-    def begin_path(self):
+    def begin_path(self) -> None:
         """
         Begin a new path.
         """
         self.context.new_path()
 
-    def begin_sub_path(self):
+    def begin_sub_path(self) -> None:
         """
         Begin a new closed shape within the current path
         """
@@ -604,12 +604,12 @@ class GraphicsContext:
             image_surface = cairo.ImageSurface.create_from_png(png_filename)
 
             # Measure the PNG image
-            img_height = image_surface.get_height()
-            img_width = image_surface.get_width()
+            img_height: int = image_surface.get_height()
+            img_width: int = image_surface.get_width()
 
             # Calculate proportional scaling to get the image to the desired size
-            width_ratio = float(target_width) / float(img_width)
-            height_ratio = float(target_height) / float(img_height)
+            width_ratio: float = float(target_width) / float(img_width)
+            height_ratio: float = float(target_height) / float(img_height)
 
             # Scale image and add it to the canvas
             self.context.translate(x_left, y_top)
@@ -629,7 +629,7 @@ class GraphicsContext:
         return outcome
 
     def matrix_transformation_set(self, xx: float, yx: float, xy: float, yy: float, x0: float, y0: float,
-                                  centre_x: float, centre_y: float):
+                                  centre_x: float, centre_y: float) -> None:
         """
         Apply a matrix transformation to the Cairo drawing context.
 
@@ -640,7 +640,7 @@ class GraphicsContext:
         self.context.translate(tx=centre_x, ty=centre_y)
         self.context.transform(cairo.Matrix(xx=xx, yx=yx, xy=xy, yy=yy, x0=x0, y0=y0))
 
-    def matrix_transformation_restore(self):
+    def matrix_transformation_restore(self) -> None:
         """
         Undo a matrix transformation to the Cairo drawing context.
         """

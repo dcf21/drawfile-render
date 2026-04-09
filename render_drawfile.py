@@ -19,7 +19,7 @@
 # ----------------------------------------------------------------------------
 
 """
-This Python script renders Acorn Draw files in a variety of formats
+This Python script renders Acorn Draw files in a variety of formats.
 
 References:
     http://justsolve.archiveteam.org/wiki/Acorn_Draw
