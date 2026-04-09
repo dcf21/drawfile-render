@@ -4,7 +4,7 @@
 # The Python script in this file is part of drawfile-render: a tool for
 # rendering Acorn !Draw files to PNG and SVG.
 #
-# Copyright (C) 2010-2023 Dominic Ford <https://dcford.org.uk/>
+# Copyright (C) 2010-2026 Dominic Ford <https://dcford.org.uk/>
 #
 # This code is free software; you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
