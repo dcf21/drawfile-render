@@ -35,6 +35,7 @@ import io
 import glob
 import logging
 import os
+import re
 import sys
 
 from typing import Dict, List, Optional, Sequence
@@ -42,45 +43,6 @@ from typing import Dict, List, Optional, Sequence
 from graphics_context import GraphicsContext, GraphicsPage
 import spritefile, spr2img
 import temporary_directory
-
-
-def _register_riscos_fonts() -> bool:
-    """
-    Register the bundled RISC OS font directory with fontconfig so that Cairo
-    can resolve the original RISC OS font family names (Homerton, Trinity,
-    Corpus, etc.) directly.
-
-    :return:
-        True if the fonts were registered successfully, False otherwise.
-    """
-    font_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "riscos-free-fonts", "Fonts")
-    if not os.path.isdir(font_dir):
-        logging.warning("RISC OS font directory not found: %s", font_dir)
-        return False
-
-    fc_lib_name = ctypes.util.find_library("fontconfig")
-    if fc_lib_name is None:
-        logging.warning("fontconfig library not found, cannot register RISC OS fonts")
-        return False
-
-    try:
-        fc = ctypes.cdll.LoadLibrary(fc_lib_name)
-        fc.FcConfigAppFontAddDir.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-        fc.FcConfigAppFontAddDir.restype = ctypes.c_int
-        result = fc.FcConfigAppFontAddDir(None, font_dir.encode("utf-8"))
-        if result:
-            logging.debug("Registered RISC OS fonts from %s", font_dir)
-            return True
-        else:
-            logging.warning("FcConfigAppFontAddDir failed for %s", font_dir)
-            return False
-    except OSError as e:
-        logging.warning("Failed to load fontconfig: %s", e)
-        return False
-
-
-# Register bundled RISC OS fonts at import time
-_RISCOS_FONTS_AVAILABLE = _register_riscos_fonts()
 
 # Translation table for RISC OS Acorn Latin1 to Unicode.
 # ISO 8859-1 maps bytes 0x80-0x9F to C1 control characters, but RISC OS
@@ -379,8 +341,22 @@ class DrawFileRender:
         },
     }
 
+    # Fallback mapping of RISC OS font family names to generic system fonts,
+    # used when the bundled RISC OS fonts are not available.
+    _riscos_font_fallbacks: Dict[str, str] = {
+        "homerton": "FreeSans",
+        "trinity": "FreeSerif",
+        "corpus": "FreeMono",
+        "newhall": "FreeSerif",
+        "sassoon": "FreeSerif",
+        "system": "FreeMono",
+    }
+
     def __init__(self, filename: str):
         self.filename: str = filename
+
+        # Register bundled RISC OS fonts
+        self._RISCOS_FONTS_AVAILABLE = self._register_riscos_fonts()
 
         # Read Drawfile into an array of bytes
         with open(filename, "rb") as file:
@@ -443,6 +419,41 @@ class DrawFileRender:
             self.factor_into_bbox(x=self.x_min_as_read, y=self.y_min_as_read)
             self.factor_into_bbox(x=self.x_max_as_read, y=self.y_max_as_read)
 
+    @staticmethod
+    def _register_riscos_fonts() -> bool:
+        """
+        Register the bundled RISC OS font directory with fontconfig so that Cairo
+        can resolve the original RISC OS font family names (Homerton, Trinity,
+        Corpus, etc.) directly.
+
+        :return:
+            True if the fonts were registered successfully, False otherwise.
+        """
+        font_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "riscos-free-fonts", "Fonts")
+        if not os.path.isdir(font_dir):
+            logging.warning("RISC OS font directory not found: %s", font_dir)
+            return False
+
+        fc_lib_name = ctypes.util.find_library("fontconfig")
+        if fc_lib_name is None:
+            logging.warning("fontconfig library not found, cannot register RISC OS fonts")
+            return False
+
+        try:
+            fc = ctypes.cdll.LoadLibrary(fc_lib_name)
+            fc.FcConfigAppFontAddDir.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+            fc.FcConfigAppFontAddDir.restype = ctypes.c_int
+            result = fc.FcConfigAppFontAddDir(None, font_dir.encode("utf-8"))
+            if result:
+                logging.debug("Registered RISC OS fonts from %s", font_dir)
+                return True
+            else:
+                logging.warning("FcConfigAppFontAddDir failed for %s", font_dir)
+                return False
+        except OSError as e:
+            logging.warning("Failed to load fontconfig: %s", e)
+            return False
+
     def factor_into_bbox(self, x: float, y: float) -> None:
         """
         Factor a point into the bounding box for this Drawfile
@@ -457,19 +468,7 @@ class DrawFileRender:
         self.y_min = min(self.y_min, int(y - self.margin / self.pixel))
         self.y_max = max(self.y_max, int(y + self.margin / self.pixel))
 
-    # Fallback mapping of RISC OS font family names to generic system fonts,
-    # used when the bundled RISC OS fonts are not available.
-    _riscos_font_fallbacks: Dict[str, str] = {
-        "homerton": "FreeSans",
-        "trinity": "FreeSerif",
-        "corpus": "FreeMono",
-        "newhall": "FreeSerif",
-        "sassoon": "FreeSerif",
-        "system": "FreeMono",
-    }
-
-    @staticmethod
-    def _map_riscos_font(riscos_name: str) -> dict:
+    def _map_riscos_font(self, riscos_name: str) -> dict:
         """
         Map a RISC OS font name to system font properties.
 
@@ -488,7 +487,7 @@ class DrawFileRender:
         parts = riscos_name.split(".")
         family_key = parts[0].lower() if parts else ""
 
-        if _RISCOS_FONTS_AVAILABLE:
+        if self._RISCOS_FONTS_AVAILABLE:
             # Use the original RISC OS family name — fontconfig can resolve it
             # from the bundled OTF fonts
             family = parts[0] if parts else "Trinity"
@@ -1086,8 +1085,7 @@ if __name__ == "__main__":
                         stream=sys.stdout,
                         format='[%(asctime)s] %(levelname)s:%(filename)s:%(message)s',
                         datefmt='%d/%m/%Y %H:%M:%S')
-    logger = logging.getLogger(__name__)
-    logger.debug(__doc__.strip())
+    logging.debug(__doc__.strip())
 
     # Open input file
     df = DrawFileRender(filename=args.input_filename)
