@@ -135,6 +135,11 @@ class spritefile:
 
     def str2num(self, size, s):
 
+        if len(s) < size:
+            raise spritefile_error(
+                'Unexpected end of file: expected %d bytes, got %d.' % (size, len(s))
+            )
+
         i = 0
         n = 0
         while i < size:
