@@ -117,6 +117,7 @@ class spritefile:
     def new(self):
 
         self.sprites = {}
+        self.warnings = []
 
     def number(self, size, n):
 
@@ -655,6 +656,11 @@ class spritefile:
 
     def read(self, file):
 
+        # Minimum valid sprite record: next(4) + name(12) + h_words(4) +
+        # v_lines(4) + first_bit(4) + last_bit(4) + image_off(4) +
+        # mask_off(4) + mode(4) = 44 bytes.
+        MIN_SPRITE_HEADER = 44
+
         file.seek(0, 2)
         size = file.tell()
         file.seek(0, 0)
@@ -665,11 +671,32 @@ class spritefile:
         free = self.str2num(4, file.read(4)) - 4
 
         self.sprites = {}
+        self.warnings = []
 
         while (offset < free):
             name, data, next = self.read_details(file, offset)
 
             self.sprites[name] = data
+
+            if next == 0:
+                # next == 0 is not a valid offset but the sprite itself is
+                # intact; treat as a quiet end-of-chain terminator.
+                break
+            if next < MIN_SPRITE_HEADER:
+                self.warnings.append(
+                    'Corrupt sprite area: next-sprite offset %d is below minimum header size %d '
+                    '(at file offset %d); stopping after %d sprite(s).'
+                    % (next, MIN_SPRITE_HEADER, offset, len(self.sprites))
+                )
+                break
+            if offset + next > free:
+                self.warnings.append(
+                    'Corrupt sprite area: next-sprite offset %d steps beyond free pointer '
+                    '(at file offset %d, free = %d); stopping after %d sprite(s).'
+                    % (next, offset, free, len(self.sprites))
+                )
+                break
+
             offset = offset + next
 
     def rgb2sprite(self, name):
