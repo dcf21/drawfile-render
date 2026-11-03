@@ -30,6 +30,7 @@
 version = '0.22'
 
 import string
+import struct
 
 
 class spritefile_error(Exception):
@@ -44,6 +45,141 @@ scale16 = 255.0 / 31.0  # scaling factor for 16 bits per pixel colour
 
 
 # components
+
+# ---------------------------------------------------------------------------
+# Fast block decoders
+#
+# The original sprite2rgb / mask2byte / mask2rgba methods decode one pixel at a
+# time with a file.seek() + file.read(1) per pixel inside a doubly-nested
+# Python loop.  On a large image (a scanned A4 page at 300 dpi is ~8.7M pixels)
+# this is extremely slow.  The helpers below let those methods read the whole
+# image/mask region in a single file.read() and decode it with precomputed
+# lookup tables and bytes operations, which is one to two orders of magnitude
+# faster while producing byte-identical output.  They use only the standard
+# library.
+# ---------------------------------------------------------------------------
+
+# LUT caches, keyed by the scaling constant so a change to scale8/scale16 is
+# reflected rather than served stale.
+_VIDC256_CACHE = {}
+_RGB565_CACHE = {}
+
+
+def _vidc256_colour_lut(scale8):
+    """List of 256 3-byte RGB values for the standard VIDC 8-bit palette."""
+    lut = _VIDC256_CACHE.get(scale8)
+    if lut is None:
+        lut = []
+        for v in range(256):
+            red = ((v & 0x10) >> 1) | (v & 7)
+            green = ((v & 0x40) >> 3) | ((v & 0x20) >> 3) | (v & 3)
+            blue = ((v & 0x80) >> 4) | ((v & 8) >> 1) | (v & 3)
+            lut.append(bytes((int(red * scale8), int(green * scale8), int(blue * scale8))))
+        _VIDC256_CACHE[scale8] = lut
+    return lut
+
+
+def _rgb565_lut(scale16):
+    """List of 65536 3-byte RGB values for 16-bit (5:5:5) sprite pixels."""
+    lut = _RGB565_CACHE.get(scale16)
+    if lut is None:
+        lut = []
+        for value in range(65536):
+            red = int((value & 0x1f) * scale16)
+            green = int(((value >> 5) & 0x1f) * scale16)
+            blue = int(((value >> 10) & 0x1f) * scale16)
+            lut.append(bytes((red, green, blue)))
+        _RGB565_CACHE[scale16] = lut
+    return lut
+
+
+def _colour_lut(palette, count):
+    """Build a colour LUT (list of 3-byte RGB) from a palette, mirroring the
+    scalar code's palette[value][0] indexing.  Returns None if the palette is
+    too short for `count` entries."""
+    if len(palette) < count:
+        return None
+    return [bytes(palette[i][0]) for i in range(len(palette))]
+
+
+def _byte_expand_table(bpp, colour_lut):
+    """Map each of 256 input byte values to its expanded RGB output bytes.
+
+    A source byte holds 8 // bpp LSB-first pixels (bpp in 1, 2, 4).  Returns a
+    list of 256 bytes objects, or None if a pixel value is outside colour_lut."""
+    ppb = 8 // bpp
+    mask = (1 << bpp) - 1
+    if len(colour_lut) < (1 << bpp):
+        return None
+    table = []
+    for v in range(256):
+        out = bytearray()
+        for k in range(ppb):
+            out += colour_lut[(v >> (k * bpp)) & mask]
+        table.append(bytes(out))
+    return table
+
+
+def _mask_geometry(width, bpp):
+    """Return (effective_bpp, row_stride_bytes) for a mask, matching the scalar
+    code (32/16 bpp masks are stored 1bpp)."""
+    if bpp == 32 or bpp == 16:
+        bpp = 1
+    bits = bpp * width
+    row_size = bits >> 5
+    if bits % 32 != 0:
+        row_size += 1
+    return bpp, row_size * 4
+
+
+def _alpha_expand_table(bpp):
+    """Map each of 256 input byte values to its expanded mask-alpha bytes,
+    mirroring the scalar mask logic.  Returns None for bpp 8 (identity)."""
+    if bpp == 8:
+        return None
+    ppb = 8 // bpp
+    mask = (1 << bpp) - 1
+    table = []
+    for v in range(256):
+        out = bytearray()
+        for k in range(ppb):
+            value = (v >> (k * bpp)) & mask
+            if bpp == 4:
+                value = value | (value << 4)
+            elif bpp == 2:
+                value = 0xff if value == 3 else value
+            elif bpp == 1:
+                value = value * 0xff
+            out.append(value)
+        table.append(bytes(out))
+    return table
+
+
+def _decode_mask_alpha(block, byte_offset, row_stride, eff_bpp, width, height):
+    """Decode a mask block to flat alpha bytes (length width*height), or None."""
+    alpha = bytearray()
+    if eff_bpp == 8:
+        for j in range(height):
+            base = j * row_stride + byte_offset
+            row = block[base:base + width]
+            if len(row) < width:
+                return None
+            alpha += row
+        return alpha
+    table = _alpha_expand_table(eff_bpp)
+    if table is None:
+        return None
+    ppb = 8 // eff_bpp
+    n_src = (width + ppb - 1) // ppb
+    for j in range(height):
+        base = j * row_stride + byte_offset
+        row = block[base:base + n_src]
+        if len(row) < n_src:
+            return None
+        alpha += b''.join([table[b] for b in row])[:width]
+    return alpha
+
+
 
 class spritefile:
     """spritefile
@@ -150,6 +286,98 @@ class spritefile:
         return n
 
     def sprite2rgb(self, file, width, height, h_words, first_bit_used, bpp,
+                   palette):
+
+        # Fast path: decode the whole image in one read using lookup tables.
+        # Falls back to the per-pixel scalar decoder for anything it does not
+        # handle (non-byte-aligned offsets, short palettes, truncated data).
+        start = file.tell()
+        out = self._sprite2rgb_fast(file, width, height, h_words,
+                                    first_bit_used, bpp, palette)
+        if out is not None:
+            return out
+        file.seek(start, 0)
+        return self._sprite2rgb_scalar(file, width, height, h_words,
+                                       first_bit_used, bpp, palette)
+
+    def _sprite2rgb_fast(self, file, width, height, h_words, first_bit_used,
+                         bpp, palette):
+
+        if (first_bit_used & 7) != 0:
+            return None
+
+        byte_offset = first_bit_used >> 3
+        row_stride = h_words * 4
+        block = file.read(height * row_stride)
+        if len(block) < height * row_stride:
+            return None
+
+        has_palette = palette != []
+        rgb = bytearray()
+
+        if bpp == 32:
+            need = width * 4
+            for j in range(height):
+                base = j * row_stride + byte_offset
+                row = bytearray(block[base:base + need])
+                if len(row) < need:
+                    return None
+                del row[3::4]                       # drop the unused 4th byte
+                rgb += row
+
+        elif bpp == 16:
+            lut = _rgb565_lut(scale16)
+            need = width * 2
+            for j in range(height):
+                base = j * row_stride + byte_offset
+                row = block[base:base + need]
+                if len(row) < need:
+                    return None
+                rgb += b''.join([lut[v] for v in struct.unpack('<%dH' % width, row)])
+
+        elif bpp == 8:
+            if has_palette:
+                colour = _colour_lut(palette, 256)
+            else:
+                colour = _vidc256_colour_lut(scale8)
+            if colour is None:
+                return None
+            maxval = len(colour)
+            for j in range(height):
+                base = j * row_stride + byte_offset
+                row = block[base:base + width]
+                if len(row) < width or (row and max(row) >= maxval):
+                    return None
+                rgb += b''.join([colour[b] for b in row])
+
+        elif bpp in (4, 2, 1):
+            if has_palette:
+                colour = _colour_lut(palette, 1 << bpp)
+            elif bpp == 4:
+                colour = [bytes(c) for c in self.palette16]
+            elif bpp == 2:
+                colour = [bytes(c) for c in self.palette4]
+            else:
+                colour = [b'\xff\xff\xff', b'\x00\x00\x00']
+            table = _byte_expand_table(bpp, colour) if colour is not None else None
+            if table is None:
+                return None
+            ppb = 8 // bpp
+            n_src = (width + ppb - 1) // ppb
+            out_len = width * 3
+            for j in range(height):
+                base = j * row_stride + byte_offset
+                row = block[base:base + n_src]
+                if len(row) < n_src:
+                    return None
+                rgb += b''.join([table[b] for b in row])[:out_len]
+
+        else:
+            return None
+
+        return rgb
+
+    def _sprite2rgb_scalar(self, file, width, height, h_words, first_bit_used, bpp,
                    palette):
 
         # Convert sprite to RGB values
@@ -293,6 +521,18 @@ class spritefile:
 
     def mask2byte(self, file, width, height, bpp):
 
+        start = file.tell()
+        eff_bpp, row_stride = _mask_geometry(width, bpp)
+        block = file.read(height * row_stride)
+        if len(block) >= height * row_stride:
+            alpha = _decode_mask_alpha(block, 0, row_stride, eff_bpp, width, height)
+            if alpha is not None:
+                return alpha
+        file.seek(start, 0)
+        return self._mask2byte_scalar(file, width, height, bpp)
+
+    def _mask2byte_scalar(self, file, width, height, bpp):
+
         mask = bytearray()
 
         ptr = file.tell() * 8  # bit offset
@@ -363,6 +603,28 @@ class spritefile:
         return mask
 
     def mask2rgba(self, file, width, height, first_bit_used, bpp, image):
+
+        start = file.tell()
+        if (first_bit_used & 7) == 0 and len(image) >= width * height * 3:
+            byte_offset = first_bit_used >> 3
+            eff_bpp, row_stride = _mask_geometry(width, bpp)
+            block = file.read(height * row_stride)
+            if len(block) >= height * row_stride:
+                alpha = _decode_mask_alpha(block, byte_offset, row_stride,
+                                           eff_bpp, width, height)
+                if alpha is not None:
+                    rgb = bytes(image)
+                    n = width * height
+                    rgba = bytearray(n * 4)
+                    rgba[0::4] = rgb[0:n * 3:3]
+                    rgba[1::4] = rgb[1:n * 3:3]
+                    rgba[2::4] = rgb[2:n * 3:3]
+                    rgba[3::4] = alpha
+                    return rgba
+        file.seek(start, 0)
+        return self._mask2rgba_scalar(file, width, height, first_bit_used, bpp, image)
+
+    def _mask2rgba_scalar(self, file, width, height, first_bit_used, bpp, image):
 
         rgba = bytearray()
 
