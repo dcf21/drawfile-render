@@ -26,13 +26,19 @@ import os
 import shutil
 import time
 
+from typing import Optional, Type
+from types import TracebackType
+
 
 class TemporaryDirectory:
     """
     Class to create a temporary working directory, and clean up its contents afterwards
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """
+        Create a new temporary working directory in /tmp.
+        """
         # Create a random hex id to use in the filename of the temporary directory
         key_string = str(time.time())
         uid = hashlib.md5(key_string.encode()).hexdigest()
@@ -45,29 +51,48 @@ class TemporaryDirectory:
 
         self.tmp_dir = tmp_dir
 
-    def __enter__(self):
+    def __enter__(self) -> "TemporaryDirectory":
         """
         Called at the start of a with block
+
+        :return:
+            This TemporaryDirectory instance
         """
         return self
 
-    def __del__(self):
+    def __del__(self) -> None:
         """
         Destructor
+
+        :return:
+            None
         """
         self.clean_up()
 
-    def clean_up(self):
+    def clean_up(self) -> None:
         """
         Clean up temporary directory
+
+        :return:
+            None
         """
         # Iteratively delete temporary directory and all its contents
         if self.tmp_dir is not None:
             shutil.rmtree(self.tmp_dir)
             self.tmp_dir = None
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Optional[Type[BaseException]], exc_val: Optional[BaseException],
+                 exc_tb: Optional[TracebackType]) -> None:
         """
         Called at the end of a with block
+
+        :param exc_type:
+            The type of any exception raised within the with block, or None.
+        :param exc_val:
+            Any exception raised within the with block, or None.
+        :param exc_tb:
+            The traceback of any exception raised within the with block, or None.
+        :return:
+            None
         """
         self.clean_up()

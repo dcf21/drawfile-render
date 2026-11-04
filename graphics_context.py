@@ -24,8 +24,9 @@ A thin wrapper to produce vector graphics using cairo.
 import logging
 
 from math import pi, sin, cos
+from types import TracebackType
 
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Type, Union
 
 import cairocffi as cairo
 from graphics_context_constants import unit_deg, unit_mm, font_size_base, line_width_base, dots_per_inch
@@ -42,7 +43,7 @@ class GraphicsPage:
                  output: str = "page",
                  width: float = 0.15,
                  height: float = 0.15,
-                 dots_per_inch: float = dots_per_inch):
+                 dots_per_inch: float = dots_per_inch) -> None:
         """
         A thin wrapper to produce vector graphics using cairo. This class represents a page / image file we are going
         to draw onto.
@@ -69,7 +70,7 @@ class GraphicsPage:
         self.width: int = int(width * self.dots_per_metre)  # pixels
         self.height: int = int(height * self.dots_per_metre)  # pixels
 
-        self.surface = None
+        self.surface: Optional[cairo.Surface] = None
         if self.format == "pdf":
             self.surface = cairo.PDFSurface(self.output, self.width, self.height)
         elif self.format == "png":
@@ -106,14 +107,39 @@ class GraphicsPage:
         self.surface.finish()
         self.surface = None
 
-    def __enter__(self):
+    def __enter__(self) -> "GraphicsPage":
+        """
+        Called at the start of a with block
+
+        :return:
+            This GraphicsPage instance
+        """
         return self
 
-    def __exit__(self, err_type, err_value, err_tb) -> None:
+    def __exit__(self, err_type: Optional[Type[BaseException]], err_value: Optional[BaseException],
+                 err_tb: Optional[TracebackType]) -> None:
+        """
+        Called at the end of a with block. Writes the page to disk.
+
+        :param err_type:
+            The type of any exception raised within the with block, or None.
+        :param err_value:
+            Any exception raised within the with block, or None.
+        :param err_tb:
+            The traceback of any exception raised within the with block, or None.
+        :return:
+            None
+        """
         self.__del__()
 
     @staticmethod
     def supported_formats() -> Sequence[str]:
+        """
+        List the image formats that we are able to produce.
+
+        :return:
+            List of supported image formats
+        """
         return "pdf", "png", "svg"
 
 
@@ -127,7 +153,7 @@ class GraphicsContext:
                  page: GraphicsPage,
                  offset_x: float = 0,
                  offset_y: float = 0,
-                 rotation: float = 0):
+                 rotation: float = 0) -> None:
         """
         A thin wrapper to produce vector graphics using cairo. This class provides a drawing context that we can use to
         draw a figure onto a page.
@@ -154,7 +180,7 @@ class GraphicsContext:
         self.line_dotted: bool = False
 
         # Create Cairo context with default settings for requested canvas
-        self.context = cairo.Context(target=page.surface)
+        self.context: cairo.Context = cairo.Context(target=page.surface)
         self.context.scale(sx=page.dots_per_metre, sy=page.dots_per_metre)
         self.context.translate(tx=offset_x, ty=offset_y)
         self.context.rotate(radians=rotation * unit_deg)
@@ -163,10 +189,29 @@ class GraphicsContext:
         self.set_font_size(font_size=1)
         self.context.set_fill_rule(fill_rule=cairo.FILL_RULE_EVEN_ODD)
 
-    def __enter__(self):
+    def __enter__(self) -> "GraphicsContext":
+        """
+        Called at the start of a with block
+
+        :return:
+            This GraphicsContext instance
+        """
         return self
 
-    def __exit__(self, err_type, err_value, err_tb) -> None:
+    def __exit__(self, err_type: Optional[Type[BaseException]], err_value: Optional[BaseException],
+                 err_tb: Optional[TracebackType]) -> None:
+        """
+        Called at the end of a with block. No action is required.
+
+        :param err_type:
+            The type of any exception raised within the with block, or None.
+        :param err_value:
+            Any exception raised within the with block, or None.
+        :param err_tb:
+            The traceback of any exception raised within the with block, or None.
+        :return:
+            None
+        """
         pass
 
     def begin_path(self) -> None:
@@ -238,7 +283,19 @@ class GraphicsContext:
                color: Optional[Sequence[float]] = None, dotted: Optional[bool] = None,
                dash_pattern: Optional[List[float]] = None) -> None:
         """
-        Stroke the current path
+        Stroke the current path. The path is preserved afterwards, so that it can subsequently be filled or used
+        as a clipping region.
+
+        :param line_width:
+            If set, the line width to use, relative to the base line width defined in <constants.py>
+        :param color:
+            If set, the colour to use, as a list of four float values: Red/green/blue/alpha.
+        :param dotted:
+            If set, a boolean flag indicating whether lines should be dotted or continuous.
+        :param dash_pattern:
+            Optional list of dash/gap lengths in metres, used if <dotted> is True.
+        :return:
+            None
         """
         if line_width is not None:
             self.set_line_width(line_width=line_width)
@@ -246,11 +303,16 @@ class GraphicsContext:
             self.set_color(color=color)
         if dotted is not None:
             self.set_line_style(dotted=dotted, dash_pattern=dash_pattern)
-        self.context.stroke()
+        self.context.stroke_preserve()
 
     def fill(self, color: Optional[Sequence[float]] = None) -> None:
         """
         Fill the current path
+
+        :param color:
+            If set, the colour to use, as a list of four float values: Red/green/blue/alpha.
+        :return:
+            None
         """
         if color is not None:
             self.set_color(color=color)
@@ -381,7 +443,7 @@ class GraphicsContext:
         Sets the line width used to stroke paths.
 
         :param line_width:
-            Line width, relative to the base line width defined in <constants.py>
+            Line width, relative to the base line-width defined in <constants.py>
         :return:
             None
         """
@@ -505,7 +567,7 @@ class GraphicsContext:
                       )
             current_azimuth += (character_width * spacing) / radius
 
-    def text_wrapped(self, text: str | Sequence, x: float, y: float, width: float,
+    def text_wrapped(self, text: Union[str, Sequence], x: float, y: float, width: float,
                      justify: int = 0, line_spacing: float = 1.3,
                      h_align: int = 0, v_align: int = 0, rotation: float = 0) -> None:
         """
@@ -562,11 +624,11 @@ class GraphicsContext:
         self.context.translate(tx=x, ty=y)
         self.context.rotate(radians=rotation)
 
-        horizontal_anchor = justify - h_align
-        x_anchor = (width / 2) * horizontal_anchor
+        horizontal_anchor: int = justify - h_align
+        x_anchor: float = (width / 2) * horizontal_anchor
 
         if v_align > 0:
-            y_anchor = 0
+            y_anchor: float = 0
         elif v_align == 0:
             y_anchor = -total_height / 2
         else:
@@ -601,7 +663,7 @@ class GraphicsContext:
         self.context.save()
         try:
             # Create a Cairo image surface with the PNG image on it
-            image_surface = cairo.ImageSurface.create_from_png(png_filename)
+            image_surface: cairo.ImageSurface = cairo.ImageSurface.create_from_png(png_filename)
 
             # Measure the PNG image
             img_height: int = image_surface.get_height()
@@ -617,7 +679,7 @@ class GraphicsContext:
             self.context.set_source_surface(image_surface)
 
             self.context.paint()
-            outcome = True
+            outcome: bool = True
         except:
             logging.info("Failed to render PNG image")
             outcome = False
@@ -635,6 +697,28 @@ class GraphicsContext:
 
         x_new = xx * x + xy * y + x0
         y_new = yx * x + yy * y + y0
+
+        The transformation is applied about the point (centre_x, centre_y). It can be undone by calling
+        <matrix_transformation_restore>.
+
+        :param xx:
+            Matrix component xx
+        :param yx:
+            Matrix component yx
+        :param xy:
+            Matrix component xy
+        :param yy:
+            Matrix component yy
+        :param x0:
+            Translation in the x direction
+        :param y0:
+            Translation in the y direction
+        :param centre_x:
+            The x position of the centre of the transformation
+        :param centre_y:
+            The y position of the centre of the transformation
+        :return:
+            None
         """
         self.context.save()
         self.context.translate(tx=centre_x, ty=centre_y)
@@ -652,7 +736,7 @@ class BaseComponent:
     A class wrapping a piece of code used to draw a single component of the model.
     """
 
-    def __init__(self, settings: Optional[dict] = None):
+    def __init__(self, settings: Optional[dict] = None) -> None:
         """
         A class wrapping a piece of code used to draw a single component of the model.
 
@@ -785,11 +869,25 @@ class CompositeComponent(BaseComponent):
     A class allowing multiple components to be overlaid on a single canvas
     """
 
-    def __init__(self, components: Sequence[BaseComponent], settings: Optional[dict] = None):
+    def __init__(self, components: Sequence[BaseComponent], settings: Optional[dict] = None) -> None:
+        """
+        A class allowing multiple components to be overlaid on a single canvas.
+
+        :param components:
+            The list of components to overlay
+        :param settings:
+            Settings used in the rendering of this component
+        """
         self.components: Sequence[BaseComponent] = components
         super(CompositeComponent, self).__init__(settings=settings)
 
     def default_filename(self) -> str:
+        """
+        Report a default filename to use for this item, without file type suffix.
+
+        :return:
+            string
+        """
         return "composite_page"
 
     def bounding_box(self, settings: dict) -> Dict[str, float]:

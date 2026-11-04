@@ -108,6 +108,15 @@ def bytes_to_int(size: int, byte_array: bytes, position: int) -> int:
     """
     Convert an array of bytes into a signed integer of arbitrary byte width.
     Identical to bytes_to_uint but sign-extends the result.
+
+    :param size:
+        The number of bytes in the integer
+    :param byte_array:
+        The array of bytes to read from
+    :param position:
+        The position of the first (least significant) byte of the integer within the array
+    :return:
+        Signed integer
     """
     out = bytes_to_uint(size=size, byte_array=byte_array, position=position)
     sign_bit = 1 << (size * 8 - 1)
@@ -163,6 +172,10 @@ def context_colour_from_int(uint: int) -> Sequence[float]:
 
 
 class DrawFileRender:
+    """
+    Class to read a RISC OS Draw file, and render it to a vector or bitmap graphics file.
+    """
+
     # Draw files measure positions in units of 1/(180*256) inches
     pixel: float = 5.51215278e-07  # metres
 
@@ -352,7 +365,13 @@ class DrawFileRender:
         "system": "FreeMono",
     }
 
-    def __init__(self, filename: str):
+    def __init__(self, filename: str) -> None:
+        """
+        Read a RISC OS Draw file, and parse the objects it contains.
+
+        :param filename:
+            The filename of the Draw file to read.
+        """
         self.filename: str = filename
 
         # Register bundled RISC OS fonts
@@ -408,11 +427,11 @@ class DrawFileRender:
                 # x_min/x_max/y_min/y_max are already set from object extents
             else:
                 logging.warning("Header bounding box is invalid and no renderable "
-                                "objects found; using header bbox as fallback")
-                self.x_min = self.x_min_as_read
-                self.x_max = self.x_max_as_read
-                self.y_min = self.y_min_as_read
-                self.y_max = self.y_max_as_read
+                                "objects found; using dummy bounding box as fallback")
+                self.x_min = int(- self.margin / self.pixel)
+                self.x_max = int(self.margin / self.pixel)
+                self.y_min = int(- self.margin / self.pixel)
+                self.y_max = int(self.margin / self.pixel)
         else:
             # Header bbox is sane — use it, expanded to include any objects
             # that fall outside it
@@ -869,6 +888,16 @@ class DrawFileRender:
         return output
 
     def render_object(self, item: dict, context: GraphicsContext) -> None:
+        """
+        Render a single Draw file object (and any child objects it contains) onto a graphics context.
+
+        :param item:
+            Dictionary describing the Draw file object to render
+        :param context:
+            The GraphicsContext to draw onto
+        :return:
+            None
+        """
         # Render text objects
         if item['type_name'] in ("Text object", "Transformed text object"):
             text_string: str = item["metadata"]["text"]
@@ -1048,6 +1077,15 @@ class DrawFileRender:
     def render_to_context(self, filename: str, img_format: str, dots_per_inch: float = 72.) -> None:
         """
         Render this Draw file to a graphics page.
+
+        :param filename:
+            The filename of the output image file
+        :param img_format:
+            The format of the output image file, e.g. 'png', 'pdf' or 'svg'
+        :param dots_per_inch:
+            The resolution of the output image, used for bitmap formats
+        :return:
+            None
         """
 
         with GraphicsPage(img_format=img_format, output=filename, dots_per_inch=dots_per_inch,
