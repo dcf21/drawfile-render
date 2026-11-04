@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # temporary_directory.py
 #
-# The Python script in this file is part of drawfile-render: a tool for
-# rendering Acorn !Draw files to PNG and SVG.
+# This Python script creates a temporary working directory, and cleans up its
+# contents afterwards.
 #
 # Copyright (C) 2010-2026 Dominic Ford <https://dcford.org.uk/>
 #
